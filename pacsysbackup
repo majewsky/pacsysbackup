@@ -1,0 +1,113 @@
+#!/usr/bin/perl
+################################################################################
+#
+#   Copyright 2015 Stefan Majewsky <majewsky@gmx.net>
+#
+#   This program is free software; you can redistribute it and/or modify it
+#   under the terms of the GNU General Public License as published by the Free
+#   Software Foundation; either version 2 of the License, or (at your option)
+#   any later version.
+#
+#   This program is distributed in the hope that it will be useful, but WITHOUT
+#   ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+#   FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+#   more details.
+#
+#   You should have received a copy of the GNU General Public License along
+#   with this program; if not, write to the Free Software Foundation, Inc.,
+#   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+#
+################################################################################
+
+use strict;
+use warnings;
+use v5.18;
+
+use Data::Dump qw(pp);
+use Getopt::Long qw(:config bundling);
+use List::MoreUtils qw(any);
+
+################################################################################
+# step 0: parse command line
+
+my $OPT_VERBOSE = 0;
+
+# TODO: --help
+GetOptions(
+   'verbose' => \$OPT_VERBOSE,
+) or die 'command line is fishy';
+
+################################################################################
+# step 1: determine filesystem layout
+#
+# We need to do this in order to determine where to look for "system files".
+# "System files" are all persistent files which are not below /home or contained
+# in virtual filesystems (/dev, /proc, /run, /sys and the like).
+
+my %FILESYSTEMS;
+
+sub step1_scan_filesystems {
+   say "Scanning filesystems..."
+      if $OPT_VERBOSE;
+   open my $fh, '<', '/proc/self/mounts'
+      or die "cannot open /proc/self/mounts: $!";
+
+   # reset output variables
+   %FILESYSTEMS = ();
+
+   # top-level directories specified by the FHS (usually provided by Arch
+   # Linux's filesystem package)
+   my @fhs_topleveldirs = qw(
+      bin boot dev etc home lib media mnt opt proc root sbin srv tmp usr var
+   );
+
+   LINE: while (my $line = <$fh>) {
+      my ($source, $dest, $fstype) = split /\s+/, $line;
+      my $classification; # will be one of qw(system user virtual)
+
+      # skip virtual filesystems (where $source is not a device file)
+      if ($source !~ m{/}) {
+         $classification = 'virtual';
+      }
+      # the root FS is definitely a system partition :)
+      elsif ($dest eq '/') {
+         $classification = 'system';
+      }
+      # skip /home (this is a system backup, user data not included)
+      elsif ($dest =~ m{^/home}) {
+         $classification = 'user';
+      }
+      # include filesystems below / which contain parts of the directories
+      # governed by the FHS (e.g. /boot or /usr are sometimes found on separate
+      # partitions)
+      elsif (any { $dest =~ m{^/$_(?:/|$)} } @fhs_topleveldirs) {
+         $classification = 'system';
+      }
+      # all other mounts probably contain user data
+      else {
+         $classification = 'user';
+      }
+
+      # put into output hash
+      push @{ $FILESYSTEMS{$classification} }, $dest;
+      # report for --verbose
+      if ($OPT_VERBOSE) {
+         my $classification_str = {
+            virtual => '[virtual FS]',
+            system  => '[syst. data]',
+            user    => '[user  data]',
+         }->{$classification};
+         say "\t$classification_str $dest";
+      }
+   }
+
+   # short report (this one is always visible, even without --verbose)
+   my @sys_fs       = @{ $FILESYSTEMS{system} // [] };
+   my $sys_fs_count = @sys_fs;
+   my $sys_fs_join  = join ' ', sort @sys_fs;
+   say "Found $sys_fs_count system partitions ($sys_fs_join)";
+
+   return;
+}
+
+step1_scan_filesystems();
