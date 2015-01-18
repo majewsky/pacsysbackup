@@ -53,7 +53,7 @@ sub step1_scan_filesystems {
       or die "cannot open /proc/self/mounts: $!";
 
    # reset output variables
-   %FILESYSTEMS = ();
+   %FILESYSTEMS = map { $_ => [] } qw(virtual system user);
 
    # top-level directories specified by the FHS (usually provided by Arch
    # Linux's filesystem package)
@@ -102,10 +102,12 @@ sub step1_scan_filesystems {
    }
 
    # short report (this one is always visible, even without --verbose)
-   my @sys_fs       = @{ $FILESYSTEMS{system} // [] };
+   my @sys_fs       = @{ $FILESYSTEMS{system} };
    my $sys_fs_count = @sys_fs;
    my $sys_fs_join  = join ' ', sort @sys_fs;
    say "Found $sys_fs_count system partitions ($sys_fs_join)";
+   die "No system partitions found; exiting"
+      unless @sys_fs;
 
    return;
 }
