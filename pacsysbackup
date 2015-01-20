@@ -23,7 +23,6 @@ use strict;
 use warnings;
 use v5.18;
 
-use Data::Dump qw(pp);
 use Getopt::Long qw(:config bundling);
 use List::MoreUtils qw(any);
 
@@ -77,13 +76,13 @@ sub step1_scan_filesystems {
       my ($source, $dest, $fstype) = split /\s+/, $line;
       my $classification; # will be one of qw(system user virtual)
 
-      # skip virtual filesystems (where $source is not a device file)
-      if ($source !~ m{/}) {
-         $classification = 'virtual';
-      }
       # the root FS is definitely a system partition :)
-      elsif ($dest eq '/') {
+      if ($dest eq '/') {
          $classification = 'system';
+      }
+      # skip virtual filesystems (where $source is not a device file)
+      elsif ($source !~ m{/}) {
+         $classification = 'virtual';
       }
       # skip /home (this is a system backup, user data not included)
       elsif ($dest =~ m{^/home}) {
