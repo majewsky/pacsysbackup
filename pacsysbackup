@@ -27,6 +27,18 @@ use Data::Dump qw(pp);
 use Getopt::Long qw(:config bundling);
 use List::MoreUtils qw(any);
 
+# this program needs root privileges (or else scanning of the root filesystems
+# will not produce reliable results)
+unless ($< == 0) {
+   # if not run as root, try to use "sudo" to obtain root privileges;
+   # the `-k` switch causes sudo to disregard cached authentications and ask
+   # for the password again, in order to make it abundantly clear that we're
+   # performing a privilege elevation; the user can always skip this password
+   # entry by prepending "sudo" to this command on the shell as usual
+   exec 'sudo', '-k', $^X, $0, @ARGV
+      or die "this program needs to be run as root\n";
+}
+
 ################################################################################
 # step 0: parse command line
 
