@@ -73,7 +73,7 @@ sub step1_scan_filesystems {
       bin boot dev etc home lib media mnt opt proc root sbin srv tmp usr var
    );
 
-   LINE: while (my $line = <$fh>) {
+   while (my $line = <$fh>) {
       my ($source, $dest, $fstype) = split /\s+/, $line;
       my $classification; # will be one of qw(system user virtual)
 
@@ -138,7 +138,9 @@ sub step2_find_unpackaged_files {
    open my $fh, '-|', qw(pacman -Ql)
       or die "cannot exec `pacman -Ql`: $!";
 
-   my %is_known_file;
+   my %is_known_file = (
+      '/' => 1,
+   );
    while (my $line = <$fh>) {
       chomp $line;
       my ($package_name, $file_name) = split /\s/, $line, 2;
@@ -151,17 +153,24 @@ sub step2_find_unpackaged_files {
       say "$file_count files and directories found";
    }
 
-   # when scanning filesystem, don't traverse into user data or virtual filesystems
+   # when scanning filesystem, don't traverse into user data or virtual filesystems;
+   # also, skip the "lost+found" directories found in the root directories of some
+   # filesystems and pacman's package cache (TODO: this should be located by
+   # reading /etc/pacman.conf or through libalpm)
    my %is_skipped_directory = map { $_ => 1 } (
       @{ $FILESYSTEMS{user} },
       @{ $FILESYSTEMS{virtual} },
       '/home',
+      '/var/cache/pacman/pkg',
+      ( map { $_ eq '/' ? '/lost+found' : "$_/lost+found" } (
+         @{ $FILESYSTEMS{user} },
+         @{ $FILESYSTEMS{system} },
+      )),
    );
-   use Data::Dump qw(pp);
-   pp(sort keys %is_skipped_directory);
 
-   # find files/directories on system partitions that are not contained in any packages
-   # (this operation will probably take long, so we always report that this is currently running)
+   # find files/directories on system partitions that are not contained in any
+   # packages (this operation will probably take long, so we always report that
+   # this is currently running)
    say "Scanning for files not belonging to any packages...";
    File::Find::find({
       no_chdir   => 1,
@@ -180,6 +189,10 @@ sub step2_find_unpackaged_files {
             # files even if directory is known
             return;
          }
+
+         # don't traverse into unknown directories any further; we'll be
+         # backing up the whole directory anyway
+         $File::Find::prune = 1;
 
          # TODO: this is obviously not finished; compile a file list and then
          # make an archive of these files
