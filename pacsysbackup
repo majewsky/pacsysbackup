@@ -23,6 +23,7 @@ use strict;
 use warnings;
 use v5.18;
 
+use File::Find ();
 use Getopt::Long qw(:config bundling);
 use List::MoreUtils qw(any);
 
@@ -124,3 +125,69 @@ sub step1_scan_filesystems {
 }
 
 step1_scan_filesystems();
+
+################################################################################
+# step 2: find files not owned by any packages
+
+my @UNPACKAGED_FILES;
+
+sub step2_find_unpackaged_files {
+   # list files belonging to packages
+   print "Listing files belonging to packages... "
+      if $OPT_VERBOSE;
+   open my $fh, '-|', qw(pacman -Ql)
+      or die "cannot exec `pacman -Ql`: $!";
+
+   my %is_known_file;
+   while (my $line = <$fh>) {
+      chomp $line;
+      my ($package_name, $file_name) = split /\s/, $line, 2;
+      $is_known_file{$file_name} = 1;
+   }
+
+   close $fh;
+   if ($OPT_VERBOSE) {
+      my $file_count = keys %is_known_file;
+      say "$file_count files and directories found";
+   }
+
+   # when scanning filesystem, don't traverse into user data or virtual filesystems
+   my %is_skipped_directory = map { $_ => 1 } (
+      @{ $FILESYSTEMS{user} },
+      @{ $FILESYSTEMS{virtual} },
+      '/home',
+   );
+   use Data::Dump qw(pp);
+   pp(sort keys %is_skipped_directory);
+
+   # find files/directories on system partitions that are not contained in any packages
+   # (this operation will probably take long, so we always report that this is currently running)
+   say "Scanning for files not belonging to any packages...";
+   File::Find::find({
+      no_chdir   => 1,
+      wanted     => sub {
+         my $path = $File::Find::name; # absolute path of currently examined dir/file
+
+         # skip this directory?
+         if ($is_skipped_directory{$path}) {
+            $File::Find::prune = 1;
+            return;
+         }
+
+         # known file or directory?
+         if ($is_known_file{$path} or $is_known_file{"$path/"}) {
+            # don't prune! we want to examine directory contents for unknown
+            # files even if directory is known
+            return;
+         }
+
+         # TODO: this is obviously not finished; compile a file list and then
+         # make an archive of these files
+         say $path;
+      },
+   }, '/');
+
+   die "TODO: finish implementation";
+}
+
+step2_find_unpackaged_files();
