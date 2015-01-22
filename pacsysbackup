@@ -77,6 +77,9 @@ sub step1_scan_filesystems {
       my ($source, $dest, $fstype) = split /\s+/, $line;
       my $classification; # will be one of qw(system user virtual)
 
+      # ignore the bogus mount of "rootfs -> /" that initializes Linux's VFS
+      next if $source eq 'rootfs' and $dest eq '/';
+
       # the root FS is definitely a system partition :)
       if ($dest eq '/') {
          $classification = 'system';
