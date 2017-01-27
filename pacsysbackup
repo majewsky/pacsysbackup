@@ -160,7 +160,7 @@ sub step2_find_unpackaged_files {
    # also, skip the "lost+found" directories found in the root directories of some
    # filesystems and pacman's package cache (TODO: this should be located by
    # reading /etc/pacman.conf or through libalpm)
-   my %is_skipped_directory = map { $_ => 1 } (
+   my %is_ignored_directory = map { $_ => 1 } (
       @{ $FILESYSTEMS{user} },
       @{ $FILESYSTEMS{virtual} },
       '/home',
@@ -169,6 +169,17 @@ sub step2_find_unpackaged_files {
          @{ $FILESYSTEMS{user} },
          @{ $FILESYSTEMS{system} },
       )),
+   );
+   # some directories contain computed files that we don't need to back up
+   # since they can always be regenerated; these directories are also skipped,
+   my %is_skipped_directory = (
+      '/etc/ssl/certs'   => 'cache for X.509 certificates',
+      '/holo/backup/etc' => 'original files for configuration files managed by Holo',
+      '/var/cache'       => 'system/daemon caches',
+      '/var/log'         => 'system/daemon logs',
+   );
+   my %skipped_patterns = (
+      qr{texmf/ls-R$} => 'La/TeX package lists',
    );
 
    # find files/directories on system partitions that are not contained in any
@@ -180,10 +191,30 @@ sub step2_find_unpackaged_files {
       wanted     => sub {
          my $path = $File::Find::name; # absolute path of currently examined dir/file
 
-         # skip this directory?
-         if ($is_skipped_directory{$path}) {
+         # ignore this directory silently?
+         if ($is_ignored_directory{$path}) {
             $File::Find::prune = 1;
             return;
+         }
+
+         # ignore this directory with a warning?
+         if (my $skip_reason = $is_skipped_directory{$path}) {
+            $File::Find::prune = 1;
+            if ($OPT_VERBOSE) {
+               say "\tSkipping $path ($skip_reason)";
+            }
+            return;
+         }
+         # ignore a specific file with a warning?
+         keys %skipped_patterns;
+         while (my ($pattern, $skip_reason) = each %skipped_patterns) {
+            if ($path =~ $pattern) {
+               $File::Find::prune = 1;
+               if ($OPT_VERBOSE) {
+                  say "\tSkipping $path ($skip_reason)";
+               }
+               return;
+            }
          }
 
          # known file or directory?
@@ -197,13 +228,14 @@ sub step2_find_unpackaged_files {
          # backing up the whole directory anyway
          $File::Find::prune = 1;
 
-         # TODO: this is obviously not finished; compile a file list and then
-         # make an archive of these files
-         say $path;
+         # compile a list of files to back up
+         push @UNPACKAGED_FILES, $path;
       },
    }, '/');
-
-   die "TODO: finish implementation";
 }
 
 step2_find_unpackaged_files();
+
+say for sort @UNPACKAGED_FILES;
+
+die "TODO: finish implementation";
